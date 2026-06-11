@@ -11,6 +11,7 @@ const API = "https://api.netlify.com/api/v1/blobs";
 const STORE = "leaderboard";
 const KEY = "top10";
 const ROLES = new Set(["PC", "PM", "DIR"]);
+const RESET_PW = process.env.RESET_PW || "Procore";
 const HEADERS = { "Content-Type": "application/json", "Cache-Control": "no-store" };
 
 function cfg() {
@@ -115,6 +116,20 @@ export default async (req) => {
       list = list.slice(0, 10);
       await writeList(list);
       return new Response(JSON.stringify(list), { headers: HEADERS });
+    }
+
+    if (req.method === "DELETE") {
+      let b;
+      try {
+        b = await req.json();
+      } catch {
+        b = {};
+      }
+      if (String(b.pw || "") !== RESET_PW) {
+        return new Response('{"error":"wrong password"}', { status: 403, headers: HEADERS });
+      }
+      await writeList([]);
+      return new Response("[]", { headers: HEADERS });
     }
 
     return new Response('{"error":"method not allowed"}', { status: 405, headers: HEADERS });
