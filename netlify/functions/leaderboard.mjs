@@ -27,24 +27,58 @@ async function readList() {
   });
   if (r.status === 404) return [];
   if (!r.ok) throw new Error("blob read failed: " + r.status);
-  return await r.json();
+  const txt = await r.text();
+  if (!txt) return [];
+  let v;
+  try {
+    v = JSON.parse(txt);
+  } catch {
+    return [];
+  }
+  if (Array.isArray(v)) return v;
+  // Some API versions return a signed URL envelope instead of the content.
+  if (v && typeof v.url === "string") {
+    const r2 = await fetch(v.url);
+    if (r2.status === 404) return [];
+    if (!r2.ok) throw new Error("blob fetch failed: " + r2.status);
+    try {
+      const v2 = await r2.json();
+      return Array.isArray(v2) ? v2 : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 async function writeList(list) {
   const { token, siteID } = cfg();
-  // PUT to the API returns a presigned upload URL; upload the JSON there.
+  const body = JSON.stringify(list);
+  // The Blobs API stores the request body directly on PUT.
   const r = await fetch(`${API}/${siteID}/${STORE}/${KEY}`, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body,
   });
-  if (!r.ok) throw new Error("blob sign failed: " + r.status);
-  const { url } = await r.json();
-  const up = await fetch(url, {
-    method: "PUT",
-    body: JSON.stringify(list),
-    headers: { "Content-Type": "application/json" },
-  });
-  if (!up.ok) throw new Error("blob upload failed: " + up.status);
+  if (!r.ok) throw new Error("blob write failed: " + r.status);
+  // Some API versions instead respond with a presigned URL to upload to.
+  const txt = await r.text();
+  if (txt) {
+    let v = null;
+    try {
+      v = JSON.parse(txt);
+    } catch {
+      return; // non-JSON response body; direct write succeeded
+    }
+    if (v && typeof v.url === "string") {
+      const up = await fetch(v.url, {
+        method: "PUT",
+        body,
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!up.ok) throw new Error("blob upload failed: " + up.status);
+    }
+  }
 }
 
 export default async (req) => {
